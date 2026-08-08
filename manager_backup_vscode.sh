@@ -17,8 +17,16 @@ WHITE='\033[1;37m'
 NC='\033[0m' # No Color
 BOLD='\033[1m'
 
-# Detectar OS
+# ============================================
+# DETECTAR SISTEMA OPERATIVO
+# ============================================
 OS="$(uname -s)"
+case "$OS" in
+    Linux*)     PLATFORM="linux" ;;
+    Darwin*)    PLATFORM="macos" ;;
+    CYGWIN*|MINGW*|MSYS*) PLATFORM="windows" ;;
+    *)          PLATFORM="unknown" ;;
+esac
 
 # Configuración según plataforma
 if [[ "$OS" == "Linux" ]] || [[ "$OS" == "Darwin" ]]; then
@@ -152,6 +160,89 @@ format_date() {
 }
 
 # ============================================
+# FUNCIÓN PARA INSTALAR JQ (según el sistema)
+# ============================================
+install_jq() {
+    echo "📦 Verificando jq..."
+    
+    # Verificar si ya está instalado
+    if command -v jq &> /dev/null; then
+        echo "✅ jq ya está instalado: $(jq --version)"
+        return 0
+    fi
+    
+    echo "⚠️ jq no está instalado. Intentando instalar..."
+    
+    case "$PLATFORM" in
+        linux)
+            # Detectar distribución Linux
+            if command -v apt-get &> /dev/null; then
+                echo "📦 Usando apt-get (Debian/Ubuntu)..."
+                sudo apt-get update && sudo apt-get install -y jq
+            elif command -v yum &> /dev/null; then
+                echo "📦 Usando yum (RHEL/CentOS/Fedora)..."
+                sudo yum install -y jq
+            elif command -v dnf &> /dev/null; then
+                echo "📦 Usando dnf (Fedora)..."
+                sudo dnf install -y jq
+            elif command -v pacman &> /dev/null; then
+                echo "📦 Usando pacman (Arch)..."
+                sudo pacman -S --noconfirm jq
+            else
+                echo "❌ No se pudo detectar el gestor de paquetes"
+                echo "💡 Instala jq manualmente o usa: https://stedolan.github.io/jq/"
+                return 1
+            fi
+            ;;
+            
+        macos)
+            if command -v brew &> /dev/null; then
+                echo "📦 Usando Homebrew..."
+                brew install jq
+            elif command -v port &> /dev/null; then
+                echo "📦 Usando MacPorts..."
+                sudo port install jq
+            else
+                echo "❌ No se encontró Homebrew ni MacPorts"
+                echo "💡 Instala Homebrew: https://brew.sh/"
+                return 1
+            fi
+            ;;
+            
+        windows)
+            echo "📦 Windows detectado..."
+            if command -v choco &> /dev/null; then
+                echo "📦 Usando Chocolatey..."
+                choco install jq -y
+            elif command -v winget &> /dev/null; then
+                echo "📦 Usando winget..."
+                winget install jq
+            else
+                echo "❌ No se encontró gestor de paquetes en Windows"
+                echo "💡 Descarga jq desde: https://stedolan.github.io/jq/download/"
+                echo "💡 O usa: choco install jq"
+                return 1
+            fi
+            ;;
+            
+        *)
+            echo "❌ Sistema no soportado: $PLATFORM"
+            return 1
+            ;;
+    esac
+    
+    # Verificar instalación
+    if command -v jq &> /dev/null; then
+        echo "✅ jq instalado correctamente: $(jq --version)"
+        return 0
+    else
+        echo "❌ Falló la instalación de jq"
+        return 1
+    fi
+}
+
+
+# ============================================
 # MENÚ PRINCIPAL
 # ============================================
 
@@ -179,6 +270,17 @@ show_menu() {
     echo -e "${BOLD}${WHITE}Presiona Enter para continuar...${NC}"
     read
 }
+
+# ============================================
+# INICIO DEL SCRIPT
+# ============================================
+
+# Verificar dependencias
+if ! command -v jq &> /dev/null; then
+    echo -e "${RED}Error: jq no está instalado.${NC}"
+    echo -e "${YELLOW}Instalando jq...${NC}"
+    install_jq
+fi
 
 # Loop principal
 while true; do
