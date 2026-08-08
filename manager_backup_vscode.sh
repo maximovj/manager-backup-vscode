@@ -46,3 +46,81 @@ MAX_BACKUPS=20
 
 # Crear directorio base si no existe
 mkdir -p "$BACKUP_BASE_DIR"
+
+# ============================================
+# FUNCIONES AUXILIARES
+# ============================================
+
+print_header() {
+    clear
+    echo -e "${CYAN}══════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${WHITE}  🚀 SISTEMA DE GESTIÓN DE BACKUPS VS CODE${NC}"
+    echo -e "${CYAN}══════════════════════════════════════════════════${NC}"
+    echo ""
+}
+
+print_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[✓]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[✗]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[!]${NC} $1"
+}
+
+print_separator() {
+    echo -e "${CYAN}==========================================${NC}"
+}
+
+check_vscode() {
+    if command -v code &> /dev/null; then
+        VSCODE_VERSION=$(code --version | head -n1)
+        print_success "VS Code detectado (versión: $VSCODE_VERSION)"
+        return 0
+    else
+        print_error "VS Code no está instalado"
+        return 1
+    fi
+}
+
+get_size() {
+    if [ -d "$1" ]; then
+        du -sh "$1" 2>/dev/null | cut -f1
+    else
+        echo "0"
+    fi
+}
+
+get_backup_size() {
+    if [ -d "$1" ]; then
+        du -sh "$1" 2>/dev/null | cut -f1
+    else
+        echo "0"
+    fi
+}
+
+check_backup_dirs() {
+    local backup_dir="$1"
+    local has_config=false
+    local has_extensions=false
+    local has_cache=false
+    
+    if [ -d "$backup_dir/config" ]; then
+        has_config=true
+    fi
+    if [ -d "$backup_dir/extensions" ]; then
+        has_extensions=true
+    fi
+    if [ -d "$backup_dir/cache" ]; then
+        has_cache=true
+    fi
+    
+    echo "$has_config:$has_extensions:$has_cache"
+}
