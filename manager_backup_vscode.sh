@@ -124,3 +124,29 @@ check_backup_dirs() {
     
     echo "$has_config:$has_extensions:$has_cache"
 }
+
+# ============================================
+# FUNCIÓN PARA FORMATEAR FECHA
+# ============================================
+
+format_date() {
+    local date_str="$1"
+    
+    # Si la fecha contiene ":", tomar solo la parte del timestamp
+    if [[ "$date_str" == *":"* ]]; then
+        date_str=$(echo "$date_str" | grep -oE '[0-9]{8}_[0-9]{6}' | head -1)
+    fi
+    
+    # Si la fecha tiene formato YYYYMMDD_HHMMSS
+    if [[ "$date_str" =~ ^[0-9]{8}_[0-9]{6}$ ]]; then
+        local year="${date_str:0:4}"
+        local month="${date_str:4:2}"
+        local day="${date_str:6:2}"
+        local hour="${date_str:9:2}"
+        local minute="${date_str:11:2}"
+        local second="${date_str:13:2}"
+        echo "${day}/${month}/${year} ${hour}:${minute}:${second}"
+    else
+        echo "$date_str"
+    fi
+}
