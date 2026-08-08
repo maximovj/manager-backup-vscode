@@ -134,6 +134,101 @@ check_backup_dirs() {
 }
 
 # ============================================
+# FUNCIONES DE GESTIÓN DE METADATOS
+# ============================================
+
+init_metadata() {
+    if [ ! -f "$BACKUP_METADATA_FILE" ]; then
+        echo '{"backups": []}' > "$BACKUP_METADATA_FILE"
+    fi
+}
+
+get_backup_metadata() {
+    local backup_name="$1"
+    local metadata=$(cat "$BACKUP_METADATA_FILE" 2>/dev/null)
+    
+    if [ -z "$metadata" ]; then
+        echo "null"
+        return 1
+    fi
+    
+    echo "$metadata" | jq -r ".backups[] | select(.name == \"$backup_name\")" 2>/dev/null
+}
+
+add_backup_metadata() {
+    local backup_name="$1"
+    local backup_type="$2"
+    local description="$3"
+    local backup_date="$4"
+    
+    local temp_file=$(mktemp)
+    
+    jq --arg name "$backup_name" \
+       --arg type "$backup_type" \
+       --arg desc "$description" \
+       --arg date "$backup_date" \
+       '.backups += [{"name": $name, "type": $type, "description": $desc, "date": $date}]' \
+       "$BACKUP_METADATA_FILE" > "$temp_file"
+    
+    if [ $? -eq 0 ]; then
+        mv "$temp_file" "$BACKUP_METADATA_FILE"
+        return 0
+    else
+        rm -f "$temp_file"
+        return 1
+    fi
+}
+
+update_backup_metadata() {
+    local backup_name="$1"
+    local new_description="$2"
+    
+    local temp_file=$(mktemp)
+    
+    jq --arg name "$backup_name" \
+       --arg desc "$new_description" \
+       '.backups = [.backups[] | if .name == $name then .description = $desc else . end]' \
+       "$BACKUP_METADATA_FILE" > "$temp_file"
+    
+    if [ $? -eq 0 ]; then
+        mv "$temp_file" "$BACKUP_METADATA_FILE"
+        return 0
+    else
+        rm -f "$temp_file"
+        return 1
+    fi
+}
+
+remove_backup_metadata() {
+    local backup_name="$1"
+    
+    local temp_file=$(mktemp)
+    
+    jq --arg name "$backup_name" \
+       '.backups = [.backups[] | select(.name != $name)]' \
+       "$BACKUP_METADATA_FILE" > "$temp_file"
+    
+    if [ $? -eq 0 ]; then
+        mv "$temp_file" "$BACKUP_METADATA_FILE"
+        return 0
+    else
+        rm -f "$temp_file"
+        return 1
+    fi
+}
+
+list_backups_metadata() {
+    init_metadata
+    local backups=$(jq -r '.backups[] | "\(.name):\(.type):\(.description):\(.date)"' "$BACKUP_METADATA_FILE" 2>/dev/null)
+    
+    if [ -z "$backups" ]; then
+        echo "0"
+    else
+        echo "$backups" | wc -l
+    fi
+}
+
+# ============================================
 # FUNCIÓN PARA FORMATEAR FECHA
 # ============================================
 
@@ -281,6 +376,9 @@ if ! command -v jq &> /dev/null; then
     echo -e "${YELLOW}Instalando jq...${NC}"
     install_jq
 fi
+
+# Inicializar metadatos
+init_metadata
 
 # Loop principal
 while true; do
