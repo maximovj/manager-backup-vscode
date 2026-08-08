@@ -150,3 +150,37 @@ format_date() {
         echo "$date_str"
     fi
 }
+
+# ============================================
+# MENÚ PRINCIPAL
+# ============================================
+
+show_menu() {
+    print_header
+
+    echo -e "${BOLD}${WHITE}0. ❌ Salir${NC}"
+    echo ""
+
+    echo -e "${BOLD}${WHITE}Selecciona una opción (0-10):${NC}"
+    read -p "> " option
+    
+    case $option in
+        0) 
+            echo -e "${GREEN}¡Hasta luego! 🎉${NC}"
+            exit 0
+            ;;
+        *)
+            print_error "Opción inválida"
+            sleep 2
+            ;;
+    esac
+    
+    echo ""
+    echo -e "${BOLD}${WHITE}Presiona Enter para continuar...${NC}"
+    read
+}
+
+# Loop principal
+while true; do
+    show_menu
+done
