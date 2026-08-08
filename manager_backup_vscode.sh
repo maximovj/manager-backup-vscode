@@ -347,6 +347,10 @@ show_menu() {
     echo -e "${BOLD}${WHITE}0. ❌ Salir${NC}"
     echo ""
 
+    local backup_count=$(list_backups_metadata)
+    echo -e "Backups disponibles: ${GREEN}$backup_count${NC}"
+    echo ""
+
     echo -e "${BOLD}${WHITE}Selecciona una opción (0-10):${NC}"
     read -p "> " option
     
@@ -367,6 +371,71 @@ show_menu() {
 }
 
 # ============================================
+# RECUPERAR BACKUPS EXISTENTES
+# ============================================
+
+recover_existing_backups() {
+    init_metadata
+    
+    # Buscar directorios de backup que no estén en metadata
+    local existing_backups=$(find "$BACKUP_BASE_DIR" -maxdepth 1 -type d ! -path "$BACKUP_BASE_DIR" | while read dir; do
+        local name=$(basename "$dir")
+        
+        # Ignorar directorios que no son backups válidos
+        if [ "$name" = "vscode_backups" ] || [ "$name" = "backups" ]; then
+            continue
+        fi
+        
+        # Ignorar backups temporales
+        if [[ "$name" =~ ^temp_ ]]; then
+            continue
+        fi
+        
+        # Verificar si el directorio tiene contenido válido
+        local has_content=false
+        if [ -d "$dir/config" ] || [ -d "$dir/extensions" ] || [ -d "$dir/cache" ]; then
+            has_content=true
+        fi
+        
+        # Si no tiene contenido, verificar si tiene archivos
+        if [ "$has_content" = false ]; then
+            local file_count=$(find "$dir" -maxdepth 1 -type f 2>/dev/null | wc -l)
+            local dir_count=$(find "$dir" -maxdepth 1 -type d ! -path "$dir" 2>/dev/null | wc -l)
+            if [ "$file_count" -gt 0 ] || [ "$dir_count" -gt 0 ]; then
+                has_content=true
+            fi
+        fi
+        
+        if [ "$has_content" = true ]; then
+            # Verificar si el backup ya está en metadata
+            local exists=$(jq -r ".backups[] | select(.name == \"$name\") | .name" "$BACKUP_METADATA_FILE" 2>/dev/null)
+            if [ -z "$exists" ] || [ "$exists" = "null" ]; then
+                echo "$name"
+            fi
+        fi
+    done)
+    
+    if [ -n "$existing_backups" ]; then
+        print_info "Recuperando backups existentes..."
+        echo "$existing_backups" | while read -r name; do
+            # Extraer fecha del nombre
+            local date_part=$(echo "$name" | grep -oE '[0-9]{8}_[0-9]{6}' | head -1)
+            if [ -z "$date_part" ]; then
+                date_part=$(date +%Y%m%d_%H%M%S)
+            fi
+            
+            # Agregar a metadata
+            if add_backup_metadata "$name" "recovered" "Backup recuperado automáticamente" "$date_part"; then
+                print_success "Backup recuperado: $name"
+            else
+                print_warning "No se pudo recuperar: $name"
+            fi
+        done
+    fi
+}
+
+
+# ============================================
 # INICIO DEL SCRIPT
 # ============================================
 
@@ -377,8 +446,9 @@ if ! command -v jq &> /dev/null; then
     install_jq
 fi
 
-# Inicializar metadatos
+# Inicializar metadatos y recuperar backups existentes
 init_metadata
+recover_existing_backups
 
 # Loop principal
 while true; do
