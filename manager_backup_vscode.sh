@@ -1124,6 +1124,123 @@ edit_metadata() {
     fi
 }
 
+duplicate_backup() {
+    print_header
+    echo -e "${BOLD}📋 DUPLICAR BACKUP${NC}"
+    echo ""
+    
+    # Obtener la lista de backups válidos
+    local backup_names=($(get_valid_backups_list))
+    local backup_count=${#backup_names[@]}
+    
+    if [ $backup_count -eq 0 ]; then
+        print_warning "No hay backups disponibles"
+        return 0
+    fi
+    
+    # Mostrar backups con índice
+    echo -e "${BOLD}${WHITE}Backups disponibles:${NC}"
+    echo "===================="
+    
+    local index=1
+    for name in "${backup_names[@]}"; do
+        local backup_dir="$BACKUP_BASE_DIR/$name"
+        local size=$(get_backup_size "$backup_dir")
+        local check_dirs=$(check_backup_dirs "$backup_dir")
+        local has_config=$(echo "$check_dirs" | cut -d':' -f1)
+        local has_extensions=$(echo "$check_dirs" | cut -d':' -f2)
+        local has_cache=$(echo "$check_dirs" | cut -d':' -f3)
+        
+        local config_status="✗"
+        local ext_status="✗"
+        local cache_status="✗"
+        
+        [ "$has_config" = "true" ] && config_status="✓"
+        [ "$has_extensions" = "true" ] && ext_status="✓"
+        [ "$has_cache" = "true" ] && cache_status="✓"
+        
+        # Obtener metadatos
+        local metadata=$(get_backup_metadata "$name")
+        local date_raw=$(echo "$metadata" | jq -r '.date')
+        local desc=$(echo "$metadata" | jq -r '.description')
+        
+        # Formatear fecha
+        local date_formatted=$(format_date "$date_raw")
+        
+        echo -e "${GREEN}$index)${NC} $name"
+        echo -e "   📅 Fecha: $date_formatted"
+        echo -e "   📦 Tamaño: $size"
+        echo -e "   📁 Contiene: Config[$config_status] Extensions[$ext_status] Cache[$cache_status]"
+        if [ -n "$desc" ] && [ "$desc" != "null" ]; then
+            echo -e "   📝 Descripción: $desc"
+        fi
+        echo ""
+        ((index++))
+    done
+    
+    echo -e "${BOLD}${WHITE}Selecciona el número del backup a duplicar (0 para salir):${NC}"
+    read -p "> " selection
+    
+    if [ "$selection" = "0" ]; then
+        print_info "Operación cancelada"
+        return 0
+    fi
+    
+    if ! [[ "$selection" =~ ^[0-9]+$ ]] || [ "$selection" -lt 1 ] || [ "$selection" -gt $backup_count ]; then
+        print_error "Selección inválida"
+        return 1
+    fi
+    
+    local source_name="${backup_names[$((selection-1))]}"
+    local source_dir="$BACKUP_BASE_DIR/$source_name"
+    
+    if [ ! -d "$source_dir" ]; then
+        print_error "El directorio del backup no existe"
+        return 1
+    fi
+    
+    echo -e "${BOLD}${WHITE}Nombre para el nuevo backup (opcional) [0 para cancelar]:${NC}"
+    read -p "> " new_name
+    
+    if [ "$new_name" = "0" ]; then
+        print_info "Operación cancelada"
+        return 0
+    fi
+    
+    if [ -z "$new_name" ]; then
+        local timestamp=$(date +%Y%m%d_%H%M%S)
+        new_name="${source_name}_copy_${timestamp}"
+    fi
+    
+    # Sanitizar nombre
+    new_name=$(echo "$new_name" | tr ' ' '_' | tr '[:upper:]' '[:lower:]')
+    
+    local dest_dir="$BACKUP_BASE_DIR/$new_name"
+    
+    if [ -d "$dest_dir" ]; then
+        print_error "Ya existe un backup con ese nombre"
+        return 1
+    fi
+    
+    # Copiar directorio
+    cp -r "$source_dir" "$dest_dir"
+    
+    # Obtener metadatos del source
+    local source_metadata=$(get_backup_metadata "$source_name")
+    local source_type=$(echo "$source_metadata" | jq -r '.type')
+    local source_desc=$(echo "$source_metadata" | jq -r '.description')
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    
+    # Agregar metadatos
+    if add_backup_metadata "$new_name" "$source_type" "Copia de: $source_name - $source_desc" "$timestamp"; then
+        print_success "Backup duplicado: $new_name"
+    else
+        print_error "Error al duplicar backup"
+        rm -rf "$dest_dir"
+        return 1
+    fi
+}
+
 # ============================================
 # MENÚ PRINCIPAL
 # ============================================
