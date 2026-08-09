@@ -19,3 +19,15 @@ $ sudo chmod +x ./manager_backup_vscode.sh
 # Ejecutar script
 $ ./manager_backup_vscode.sh 
 ```
+
+# Vista Pevia
+
+![preview_01.png](/screenshots/preview_01.png)
+
+![preview_02.png](/screenshots/preview_02.png)
+
+![preview_03.png](/screenshots/preview_03.png)
+
+![preview_04.png](/screenshots/preview_04.png)
+
+![preview_05.png](/screenshots/preview_05.png)
