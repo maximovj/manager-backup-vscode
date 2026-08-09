@@ -1033,6 +1033,97 @@ delete_backup() {
     print_success "Backup eliminado: $selected_backup"
 }
 
+edit_metadata() {
+    print_header
+    echo -e "${BOLD}✏️ EDITAR METADATOS${NC}"
+    echo ""
+    
+    # Obtener la lista de backups válidos
+    local backup_names=($(get_valid_backups_list))
+    local backup_count=${#backup_names[@]}
+    
+    if [ $backup_count -eq 0 ]; then
+        print_warning "No hay backups disponibles"
+        return 0
+    fi
+    
+    # Mostrar backups con índice
+    echo -e "${BOLD}${WHITE}Backups disponibles:${NC}"
+    echo "===================="
+    
+    local index=1
+    for name in "${backup_names[@]}"; do
+        local backup_dir="$BACKUP_BASE_DIR/$name"
+        local size=$(get_backup_size "$backup_dir")
+        local check_dirs=$(check_backup_dirs "$backup_dir")
+        local has_config=$(echo "$check_dirs" | cut -d':' -f1)
+        local has_extensions=$(echo "$check_dirs" | cut -d':' -f2)
+        local has_cache=$(echo "$check_dirs" | cut -d':' -f3)
+        
+        local config_status="✗"
+        local ext_status="✗"
+        local cache_status="✗"
+        
+        [ "$has_config" = "true" ] && config_status="✓"
+        [ "$has_extensions" = "true" ] && ext_status="✓"
+        [ "$has_cache" = "true" ] && cache_status="✓"
+        
+        # Obtener metadatos
+        local metadata=$(get_backup_metadata "$name")
+        local date_raw=$(echo "$metadata" | jq -r '.date')
+        local desc=$(echo "$metadata" | jq -r '.description')
+        
+        # Formatear fecha
+        local date_formatted=$(format_date "$date_raw")
+        
+        echo -e "${GREEN}$index)${NC} $name"
+        echo -e "   📅 Fecha: $date_formatted"
+        echo -e "   📦 Tamaño: $size"
+        echo -e "   📁 Contiene: Config[$config_status] Extensions[$ext_status] Cache[$cache_status]"
+        if [ -n "$desc" ] && [ "$desc" != "null" ]; then
+            echo -e "   📝 Descripción: $desc"
+        fi
+        echo ""
+        ((index++))
+    done
+    
+    echo -e "${BOLD}${WHITE}Selecciona el número del backup a editar (0 para salir):${NC}"
+    read -p "> " selection
+    
+    if [ "$selection" = "0" ]; then
+        print_info "Operación cancelada"
+        return 0
+    fi
+    
+    if ! [[ "$selection" =~ ^[0-9]+$ ]] || [ "$selection" -lt 1 ] || [ "$selection" -gt $backup_count ]; then
+        print_error "Selección inválida"
+        return 1
+    fi
+    
+    local selected_backup="${backup_names[$((selection-1))]}"
+    
+    local current_desc=$(get_backup_metadata "$selected_backup" | jq -r '.description')
+    
+    echo -e "${BOLD}${WHITE}Descripción actual:${NC} $current_desc"
+    echo -e "${BOLD}${WHITE}Nueva descripción (dejar vacío para mantener la actual) [0 para cancelar]:${NC}"
+    read -p "> " new_description
+    
+    if [ "$new_description" = "0" ]; then
+        print_info "Operación cancelada"
+        return 0
+    fi
+    
+    if [ -n "$new_description" ]; then
+        if update_backup_metadata "$selected_backup" "$new_description"; then
+            print_success "Metadatos actualizados para: $selected_backup"
+        else
+            print_error "Error al actualizar metadatos"
+        fi
+    else
+        print_info "No se realizaron cambios"
+    fi
+}
+
 # ============================================
 # MENÚ PRINCIPAL
 # ============================================
