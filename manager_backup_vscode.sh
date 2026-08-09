@@ -690,6 +690,198 @@ create_backup() {
     print_info "Ubicación: $backup_dir"
 }
 
+restore_backup() {
+    print_header
+    echo -e "${BOLD}🔄 RESTAURAR BACKUP${NC}"
+    echo ""
+    
+    # Verificar VS Code
+    check_vscode || return 1
+    
+    # Obtener la lista de backups válidos
+    local backup_names=($(get_valid_backups_list))
+    local backup_count=${#backup_names[@]}
+    
+    if [ $backup_count -eq 0 ]; then
+        print_warning "No hay backups disponibles"
+        return 1
+    fi
+    
+    # Mostrar backups con índice y descripción
+    echo -e "${BOLD}${WHITE}Backups disponibles:${NC}"
+    echo "===================="
+    
+    local index=1
+    for name in "${backup_names[@]}"; do
+        local backup_dir="$BACKUP_BASE_DIR/$name"
+        local size=$(get_backup_size "$backup_dir")
+        local check_dirs=$(check_backup_dirs "$backup_dir")
+        local has_config=$(echo "$check_dirs" | cut -d':' -f1)
+        local has_extensions=$(echo "$check_dirs" | cut -d':' -f2)
+        local has_cache=$(echo "$check_dirs" | cut -d':' -f3)
+        
+        local config_status="✗"
+        local ext_status="✗"
+        local cache_status="✗"
+        
+        [ "$has_config" = "true" ] && config_status="✓"
+        [ "$has_extensions" = "true" ] && ext_status="✓"
+        [ "$has_cache" = "true" ] && cache_status="✓"
+        
+        # Obtener metadatos
+        local metadata=$(get_backup_metadata "$name")
+        local date_raw=$(echo "$metadata" | jq -r '.date')
+        local desc=$(echo "$metadata" | jq -r '.description')
+        
+        # Formatear fecha
+        local date_formatted=$(format_date "$date_raw")
+        
+        echo -e "${GREEN}$index)${NC} $name"
+        echo -e "   📅 Fecha: $date_formatted"
+        echo -e "   📦 Tamaño: $size"
+        echo -e "   📁 Contiene: Config[$config_status] Extensions[$ext_status] Cache[$cache_status]"
+        # Mostrar descripción si existe
+        if [ -n "$desc" ] && [ "$desc" != "null" ]; then
+            echo -e "   📝 Descripción: $desc"
+        fi
+        echo ""
+        
+        ((index++))
+    done
+    
+    if [ $backup_count -eq 0 ]; then
+        print_warning "No se encontraron backups válidos"
+        return 1
+    fi
+    
+    # Seleccionar backup
+    echo -e "${BOLD}${WHITE}Selecciona el número del backup a restaurar (0 para salir):${NC}"
+    read -p "> " selection
+    
+    if [ "$selection" = "0" ]; then
+        print_info "Operación cancelada"
+        return 0
+    fi
+    
+    if ! [[ "$selection" =~ ^[0-9]+$ ]] || [ "$selection" -lt 1 ] || [ "$selection" -gt $backup_count ]; then
+        print_error "Selección inválida"
+        return 1
+    fi
+    
+    local selected_backup="${backup_names[$((selection-1))]}"
+    local backup_dir="$BACKUP_BASE_DIR/$selected_backup"
+    
+    print_info "Backup seleccionado: $selected_backup"
+    print_info "Ruta: $backup_dir"
+    
+    # Confirmar restauración
+    echo ""
+    echo -e "${BOLD}${WHITE}¿Restaurar este backup? (s/N):${NC}"
+    read -p "> " confirm
+    
+    if [[ ! "$confirm" =~ ^[Ss]$ ]]; then
+        print_info "Operación cancelada"
+        return 0
+    fi
+    
+    print_info "Iniciando restauración desde: $selected_backup"
+    
+    # Verificar contenido del backup
+    local check_dirs=$(check_backup_dirs "$backup_dir")
+    local has_config=$(echo "$check_dirs" | cut -d':' -f1)
+    local has_extensions=$(echo "$check_dirs" | cut -d':' -f2)
+    local has_cache=$(echo "$check_dirs" | cut -d':' -f3)
+    
+    if [ "$has_config" = "false" ] && [ "$has_extensions" = "false" ] && [ "$has_cache" = "false" ]; then
+        print_error "El backup no contiene datos válidos"
+        return 1
+    fi
+    
+    # Seleccionar qué restaurar
+    echo ""
+    echo -e "${BOLD}${WHITE}¿Qué deseas restaurar? [0 para cancelar]${NC}"
+    echo "1) Todo (configuraciones, extensiones y caché)"
+    echo "2) Solo configuraciones"
+    echo "3) Solo extensiones"
+    echo "4) Solo caché"
+    echo "5) Configuraciones y extensiones"
+    echo "6) Configuraciones y caché"
+    echo "7) Extensiones y caché"
+    echo ""
+    read -p "Selecciona una opción (0-7): " restore_option
+    
+    if [ "$restore_option" = "0" ]; then
+        print_info "Operación cancelada"
+        return 0
+    fi
+    
+    local restore_config=false
+    local restore_extensions=false
+    local restore_cache=false
+    
+    case $restore_option in
+        1) restore_config=true; restore_extensions=true; restore_cache=true ;;
+        2) restore_config=true ;;
+        3) restore_extensions=true ;;
+        4) restore_cache=true ;;
+        5) restore_config=true; restore_extensions=true ;;
+        6) restore_config=true; restore_cache=true ;;
+        7) restore_extensions=true; restore_cache=true ;;
+        *) print_error "Opción inválida"; return 1 ;;
+    esac
+    
+    # Realizar restauración
+    if [ "$restore_config" = true ] && [ "$has_config" = "true" ]; then
+        print_info "Restaurando configuraciones..."
+        if [ -d "$HOME/.config/Code" ]; then
+            # Crear backup del config actual
+            local temp_config_backup="$BACKUP_BASE_DIR/temp_config_$(date +%Y%m%d_%H%M%S)"
+            cp -r "$HOME/.config/Code" "$temp_config_backup"
+            print_info "Backup temporal de configuración creado en: $temp_config_backup"
+        fi
+        
+        # Restaurar configuración
+        mkdir -p "$HOME/.config"
+        cp -r "$backup_dir/config/Code" "$HOME/.config/"
+        print_success "Configuraciones restauradas"
+    fi
+    
+    if [ "$restore_extensions" = true ] && [ "$has_extensions" = "true" ]; then
+        print_info "Restaurando extensiones..."
+        if [ -d "$HOME/.vscode" ]; then
+            # Crear backup del extensions actual
+            local temp_ext_backup="$BACKUP_BASE_DIR/temp_extensions_$(date +%Y%m%d_%H%M%S)"
+            cp -r "$HOME/.vscode" "$temp_ext_backup"
+            print_info "Backup temporal de extensiones creado en: $temp_ext_backup"
+        fi
+        
+        # Restaurar extensiones
+        mkdir -p "$HOME/.vscode"
+        cp -r "$backup_dir/extensions" "$HOME/.vscode/"
+        print_success "Extensiones restauradas"
+    fi
+    
+    if [ "$restore_cache" = true ] && [ "$has_cache" = "true" ]; then
+        print_info "Restaurando caché..."
+        mkdir -p "$HOME/.cache"
+        cp -r "$backup_dir/cache" "$HOME/.cache/"
+        print_success "Caché restaurada"
+    fi
+    
+    echo ""
+    print_success "¡Restauración completada con éxito!"
+    print_info "Para que los cambios surtan efecto, reinicia VS Code"
+    print_info "Si no funciona correctamente, puedes eliminar los archivos restaurados y volver a intentarlo"
+    
+    echo ""
+    echo -e "${BOLD}${WHITE}¿Quieres abrir VS Code ahora? (s/N):${NC}"
+    read -p "> " open_vscode
+    
+    if [[ "$open_vscode" =~ ^[Ss]$ ]]; then
+        code &
+        print_success "VS Code iniciado"
+    fi
+}
 
 # ============================================
 # MENÚ PRINCIPAL
