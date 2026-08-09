@@ -1555,6 +1555,199 @@ export_backup() {
     fi
 }
 
+
+import_backup() {
+    print_header
+    echo -e "${BOLD}📥 IMPORTAR BACKUP${NC}"
+    echo ""
+    
+    echo -e "${BOLD}${WHITE}Ruta del archivo de backup a importar (.tar.gz) [0 para cancelar]:${NC}"
+    read -p "> " import_path
+    
+    if [ "$import_path" = "0" ]; then
+        print_info "Operación cancelada"
+        return 0
+    fi
+    
+    # Expandir ~ si existe
+    import_path=$(echo "$import_path" | sed "s|~|$HOME|g")
+    
+    if [ ! -f "$import_path" ]; then
+        print_error "El archivo no existe: $import_path"
+        return 1
+    fi
+    
+    if [[ ! "$import_path" =~ \.tar\.gz$ ]]; then
+        print_warning "El archivo no tiene extensión .tar.gz, pero se intentará importar"
+    fi
+    
+    # Verificar que el archivo es un tar.gz válido
+    print_info "Verificando archivo..."
+    if ! tar -tzf "$import_path" >/dev/null 2>&1; then
+        print_error "El archivo no es un tar.gz válido o está corrupto"
+        return 1
+    fi
+    
+    # Listar el contenido para ver la estructura
+    print_info "Analizando estructura del archivo..."
+    local first_level=$(tar -tzf "$import_path" 2>/dev/null | head -1 | cut -d'/' -f1)
+    
+    if [ -z "$first_level" ]; then
+        print_error "El archivo está vacío o no contiene datos"
+        return 1
+    fi
+    
+    print_info "Estructura detectada: $first_level"
+    
+    # El nombre del backup se extrae del primer nivel del tar
+    local original_name="$first_level"
+    local backup_name="$original_name"
+    
+    # Verificar si ya existe
+    if [ -d "$BACKUP_BASE_DIR/$backup_name" ]; then
+        print_warning "Ya existe un backup con el nombre: $backup_name"
+        echo -e "${BOLD}${WHITE}¿Deseas sobrescribirlo o importar con otro nombre?${NC}"
+        echo "1) Sobrescribir"
+        echo "2) Importar con otro nombre"
+        echo "3) Cancelar"
+        read -p "Selecciona una opción (1-3): " import_option
+        
+        case $import_option in
+            1)
+                print_info "Sobrescribiendo backup existente..."
+                rm -rf "$BACKUP_BASE_DIR/$backup_name"
+                remove_backup_metadata "$backup_name"
+                ;;
+            2)
+                echo -e "${BOLD}${WHITE}Ingresa un nuevo nombre para el backup:${NC}"
+                read -p "> " new_name
+                if [ -z "$new_name" ]; then
+                    print_error "El nombre no puede estar vacío"
+                    return 1
+                fi
+                # Sanitizar nombre y agregar timestamp si no lo tiene
+                new_name=$(echo "$new_name" | tr ' ' '_' | tr '[:upper:]' '[:lower:]')
+                # Verificar si el nombre ya tiene timestamp
+                if [[ ! "$new_name" =~ _[0-9]{8}_[0-9]{6}$ ]]; then
+                    local timestamp=$(date +%Y%m%d_%H%M%S)
+                    backup_name="${new_name}_${timestamp}"
+                else
+                    backup_name="$new_name"
+                fi
+                ;;
+            3|*)
+                print_info "Operación cancelada"
+                return 0
+                ;;
+        esac
+    fi
+    
+    # Crear un directorio temporal para extraer el archivo
+    local temp_dir=$(mktemp -d)
+    
+    # Extraer archivo en el directorio temporal
+    print_info "Extrayendo archivo en directorio temporal..."
+    tar -xzf "$import_path" -C "$temp_dir"
+    
+    if [ $? -ne 0 ]; then
+        print_error "Error al extraer el archivo"
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    # Verificar que el directorio extraído existe
+    local extracted_dir="$temp_dir/$original_name"
+    if [ ! -d "$extracted_dir" ]; then
+        print_error "No se encontró el directorio esperado: $original_name"
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    # Si el nombre es diferente, renombrar el directorio
+    if [ "$backup_name" != "$original_name" ]; then
+        print_info "Renombrando backup de '$original_name' a '$backup_name'"
+        mv "$extracted_dir" "$temp_dir/$backup_name"
+        extracted_dir="$temp_dir/$backup_name"
+    fi
+    
+    # Verificar si ya existe el backup en el destino
+    local dest_dir="$BACKUP_BASE_DIR/$backup_name"
+    if [ -d "$dest_dir" ]; then
+        print_warning "El directorio destino ya existe: $dest_dir"
+        echo -e "${BOLD}${WHITE}¿Deseas sobrescribirlo? (s/N):${NC}"
+        read -p "> " overwrite
+        if [[ ! "$overwrite" =~ ^[Ss]$ ]]; then
+            print_info "Operación cancelada"
+            rm -rf "$temp_dir"
+            return 0
+        fi
+        rm -rf "$dest_dir"
+        remove_backup_metadata "$backup_name"
+    fi
+    
+    # Mover el directorio al destino final
+    print_info "Moviendo backup a: $BACKUP_BASE_DIR"
+    mv "$extracted_dir" "$BACKUP_BASE_DIR/"
+    
+    if [ $? -ne 0 ]; then
+        print_error "Error al mover el backup"
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    # Limpiar directorio temporal
+    rm -rf "$temp_dir"
+    
+    # Verificar que el backup se movió correctamente
+    if [ ! -d "$BACKUP_BASE_DIR/$backup_name" ]; then
+        print_error "Error: El backup no se movió correctamente"
+        return 1
+    fi
+    
+    # Verificar si el backup tiene contenido válido
+    local check_dirs=$(check_backup_dirs "$BACKUP_BASE_DIR/$backup_name")
+    local has_config=$(echo "$check_dirs" | cut -d':' -f1)
+    local has_extensions=$(echo "$check_dirs" | cut -d':' -f2)
+    local has_cache=$(echo "$check_dirs" | cut -d':' -f3)
+    
+    if [ "$has_config" = "false" ] && [ "$has_extensions" = "false" ] && [ "$has_cache" = "false" ]; then
+        print_warning "El backup importado no contiene configuraciones, extensiones o caché válidos"
+        echo -e "${YELLOW}¿Deseas mantenerlo de todos modos? (s/N):${NC}"
+        read -p "> " keep_backup
+        if [[ ! "$keep_backup" =~ ^[Ss]$ ]]; then
+            rm -rf "$BACKUP_BASE_DIR/$backup_name"
+            print_info "Backup eliminado"
+            return 0
+        fi
+    fi
+    
+    # Extraer fecha del nombre del backup
+    local date_part=$(echo "$backup_name" | grep -oE '[0-9]{8}_[0-9]{6}' | head -1)
+    if [ -z "$date_part" ]; then
+        date_part=$(date +%Y%m%d_%H%M%S)
+    fi
+    
+    # Agregar metadatos
+    local description="Importado desde: $(basename "$import_path")"
+    if add_backup_metadata "$backup_name" "imported" "$description" "$date_part"; then
+        local backup_size=$(get_backup_size "$BACKUP_BASE_DIR/$backup_name")
+        echo ""
+        print_success "Backup importado exitosamente: $backup_name"
+        print_info "Tamaño: $backup_size"
+        print_info "Ubicación: $BACKUP_BASE_DIR/$backup_name"
+        print_info "Contenido: Config[$([ "$has_config" = "true" ] && echo "✓" || echo "✗")] Extensions[$([ "$has_extensions" = "true" ] && echo "✓" || echo "✗")] Cache[$([ "$has_cache" = "true" ] && echo "✓" || echo "✗")]"
+        
+        # Mostrar los directorios creados
+        echo ""
+        echo -e "${BOLD}${WHITE}Estructura del backup importado:${NC}"
+        ls -la "$BACKUP_BASE_DIR/$backup_name" | grep -E '^d' | awk '{print "  📁 " $9}'
+    else
+        print_error "Error al guardar metadatos del backup importado"
+        rm -rf "$BACKUP_BASE_DIR/$backup_name"
+        return 1
+    fi
+}
+
 # ============================================
 # MENÚ PRINCIPAL
 # ============================================
