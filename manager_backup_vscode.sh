@@ -1755,6 +1755,16 @@ import_backup() {
 show_menu() {
     print_header
 
+    echo -e "${BOLD}${WHITE}1. 📦 Crear backup${NC}"
+    echo -e "${BOLD}${WHITE}2. 🔄 Restaurar backup${NC}"
+    echo -e "${BOLD}${WHITE}3. 📋 Listar backups${NC}"
+    echo -e "${BOLD}${WHITE}4. 🗑️ Eliminar backup${NC}"
+    echo -e "${BOLD}${WHITE}5. ✏️ Editar metadatos${NC}"
+    echo -e "${BOLD}${WHITE}6. 📋 Duplicar backup${NC}"
+    echo -e "${BOLD}${WHITE}7. 🔍 Comparar backups${NC}"
+    echo -e "${BOLD}${WHITE}8. 📤 Exportar backup${NC}"
+    echo -e "${BOLD}${WHITE}9. 📥 Importar backup${NC}"
+    echo -e "${BOLD}${WHITE}10. 🔄 Restablecer VS Code a estado de fábrica${NC}"
     echo -e "${BOLD}${WHITE}0. ❌ Salir${NC}"
     echo ""
 
@@ -1766,6 +1776,16 @@ show_menu() {
     read -p "> " option
     
     case $option in
+        1) create_backup ;;
+        2) restore_backup ;;
+        3) list_backups ;;
+        4) delete_backup ;;
+        5) edit_metadata ;;
+        6) duplicate_backup ;;
+        7) compare_backups ;;
+        8) export_backup ;;
+        9) import_backup ;;
+        10) reset_vscode_factory ;;
         0) 
             echo -e "${GREEN}¡Hasta luego! 🎉${NC}"
             exit 0
