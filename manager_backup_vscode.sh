@@ -551,6 +551,146 @@ reset_vscode_factory() {
     print_success "¡Proceso completado! 🎉"
 }
 
+
+# ============================================
+# FUNCIONES PRINCIPALES
+# ============================================
+
+create_backup() {
+    print_header
+    echo -e "${BOLD}📦 CREAR BACKUP${NC}"
+    echo ""
+    
+    # Verificar VS Code
+    check_vscode || return 1
+    
+    # Verificar directorios
+    if [ ! -d "$VSCODE_USER_DIR" ]; then
+        print_error "No se encontró el directorio de configuración de VS Code"
+        return 1
+    fi
+    
+    # Preguntar nombre del backup
+    echo -e "${BOLD}${WHITE}Nombre del backup (ej. nestjs_backup, react_backup) [0 para cancelar]:${NC}"
+    read -p "> " backup_name
+    
+    if [ "$backup_name" = "0" ]; then
+        print_info "Operación cancelada"
+        return 0
+    fi
+    
+    if [ -z "$backup_name" ]; then
+        print_error "El nombre no puede estar vacío"
+        return 1
+    fi
+    
+    # Sanitizar nombre y obtener timestamp
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    backup_name=$(echo "$backup_name" | tr ' ' '_' | tr '[:upper:]' '[:lower:]')
+    backup_name="${backup_name}_${timestamp}"
+    
+    local backup_dir="$BACKUP_BASE_DIR/$backup_name"
+    
+    if [ -d "$backup_dir" ]; then
+        print_error "Ya existe un backup con ese nombre"
+        return 1
+    fi
+    
+    # Preguntar descripción
+    echo -e "${BOLD}${WHITE}Descripción del backup (opcional) [0 para cancelar]:${NC}"
+    read -p "> " backup_description
+    
+    if [ "$backup_description" = "0" ]; then
+        print_info "Operación cancelada"
+        rm -rf "$backup_dir"
+        return 0
+    fi
+    
+    # Crear directorio del backup
+    mkdir -p "$backup_dir"
+    
+    # Seleccionar qué respaldar
+    echo ""
+    echo -e "${BOLD}${WHITE}¿Qué deseas respaldar? [0 para cancelar]${NC}"
+    echo "1) Todo (configuraciones, extensiones y caché)"
+    echo "2) Solo configuraciones"
+    echo "3) Solo extensiones"
+    echo "4) Solo caché"
+    echo "5) Configuraciones y extensiones"
+    echo "6) Configuraciones y caché"
+    echo "7) Extensiones y caché"
+    echo ""
+    read -p "Selecciona una opción (0-7): " backup_option
+    
+    if [ "$backup_option" = "0" ]; then
+        print_info "Operación cancelada"
+        rm -rf "$backup_dir"
+        return 0
+    fi
+    
+    local backup_config=false
+    local backup_extensions=false
+    local backup_cache=false
+    
+    case $backup_option in
+        1) backup_config=true; backup_extensions=true; backup_cache=true ;;
+        2) backup_config=true ;;
+        3) backup_extensions=true ;;
+        4) backup_cache=true ;;
+        5) backup_config=true; backup_extensions=true ;;
+        6) backup_config=true; backup_cache=true ;;
+        7) backup_extensions=true; backup_cache=true ;;
+        *) print_error "Opción inválida"; rm -rf "$backup_dir"; return 1 ;;
+    esac
+    
+    # Realizar backup
+    print_info "Creando backup en: $backup_dir"
+    
+    if [ "$backup_config" = true ]; then
+        print_info "Respaldando configuraciones..."
+        mkdir -p "$backup_dir/config"
+        cp -r "$VSCODE_USER_DIR" "$backup_dir/config/"
+        print_success "Configuraciones respaldadas"
+    fi
+    
+    if [ "$backup_extensions" = true ]; then
+        print_info "Respaldando extensiones..."
+        if [ -d "$VSCODE_EXTENSIONS_DIR" ]; then
+            mkdir -p "$backup_dir/extensions"
+            cp -r "$VSCODE_EXTENSIONS_DIR" "$backup_dir/"
+            print_success "Extensiones respaldadas"
+        else
+            print_warning "No se encontraron extensiones"
+        fi
+    fi
+    
+    if [ "$backup_cache" = true ]; then
+        print_info "Respaldando caché..."
+        if [ -d "$VSCODE_CACHE_DIR" ]; then
+            mkdir -p "$backup_dir/cache"
+            cp -r "$VSCODE_CACHE_DIR" "$backup_dir/"
+            print_success "Caché respaldada"
+        else
+            print_warning "No se encontró caché"
+        fi
+    fi
+    
+    # Guardar metadatos
+    if add_backup_metadata "$backup_name" "manual" "$backup_description" "$timestamp"; then
+        print_success "Metadatos guardados correctamente"
+    else
+        print_error "Error al guardar metadatos"
+    fi
+    
+    # Mostrar información del backup
+    local backup_size=$(get_backup_size "$backup_dir")
+    echo ""
+    print_success "Backup creado exitosamente: $backup_name"
+    print_info "Tamaño: $backup_size"
+    print_info "Ubicación: $backup_dir"
+}
+
+
 # ============================================
 # MENÚ PRINCIPAL
 # ============================================
