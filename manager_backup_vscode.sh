@@ -1363,6 +1363,198 @@ compare_backups() {
     echo -e "  $backup2_name: $files2 archivos"
 }
 
+export_backup() {
+    print_header
+    echo -e "${BOLD}📤 EXPORTAR BACKUP${NC}"
+    echo ""
+    
+    # Obtener la lista de backups válidos
+    local backup_names=($(get_valid_backups_list))
+    local backup_count=${#backup_names[@]}
+    
+    if [ $backup_count -eq 0 ]; then
+        print_warning "No hay backups disponibles"
+        return 0
+    fi
+    
+    # Mostrar backups con índice
+    echo -e "${BOLD}${WHITE}Backups disponibles:${NC}"
+    echo "===================="
+    
+    local index=1
+    for name in "${backup_names[@]}"; do
+        local backup_dir="$BACKUP_BASE_DIR/$name"
+        local size=$(get_backup_size "$backup_dir")
+        local check_dirs=$(check_backup_dirs "$backup_dir")
+        local has_config=$(echo "$check_dirs" | cut -d':' -f1)
+        local has_extensions=$(echo "$check_dirs" | cut -d':' -f2)
+        local has_cache=$(echo "$check_dirs" | cut -d':' -f3)
+        
+        local config_status="✗"
+        local ext_status="✗"
+        local cache_status="✗"
+        
+        [ "$has_config" = "true" ] && config_status="✓"
+        [ "$has_extensions" = "true" ] && ext_status="✓"
+        [ "$has_cache" = "true" ] && cache_status="✓"
+        
+        # Obtener metadatos
+        local metadata=$(get_backup_metadata "$name")
+        local date_raw=$(echo "$metadata" | jq -r '.date')
+        local desc=$(echo "$metadata" | jq -r '.description')
+        
+        # Formatear fecha
+        local date_formatted=$(format_date "$date_raw")
+        
+        echo -e "${GREEN}$index)${NC} $name"
+        echo -e "   📅 Fecha: $date_formatted"
+        echo -e "   📦 Tamaño: $size"
+        echo -e "   📁 Contiene: Config[$config_status] Extensions[$ext_status] Cache[$cache_status]"
+        if [ -n "$desc" ] && [ "$desc" != "null" ]; then
+            echo -e "   📝 Descripción: $desc"
+        fi
+        echo ""
+        ((index++))
+    done
+    
+    echo -e "${BOLD}${WHITE}Selecciona el número del backup a exportar (0 para salir):${NC}"
+    read -p "> " selection
+    
+    if [ "$selection" = "0" ]; then
+        print_info "Operación cancelada"
+        return 0
+    fi
+    
+    if ! [[ "$selection" =~ ^[0-9]+$ ]] || [ "$selection" -lt 1 ] || [ "$selection" -gt $backup_count ]; then
+        print_error "Selección inválida"
+        return 1
+    fi
+    
+    local selected_backup="${backup_names[$((selection-1))]}"
+    local backup_dir="$BACKUP_BASE_DIR/$selected_backup"
+    
+    if [ ! -d "$backup_dir" ]; then
+        print_error "El directorio del backup no existe"
+        return 1
+    fi
+    
+    echo ""
+    echo -e "${BOLD}${WHITE}Ubicación para exportar:${NC}"
+    echo -e "  ${YELLOW}Nota:${NC} Puedes especificar una ruta completa o solo el nombre del archivo"
+    echo -e "  ${YELLOW}Ejemplos:${NC}"
+    echo -e "    /home/usuario/backup.tar.gz"
+    echo -e "    ~/backups/mi_backup.tar.gz"
+    echo -e "    mi_backup.tar.gz (se guardará en el directorio actual)"
+    echo -e "  ${YELLOW}[0 para cancelar]${NC}"
+    echo ""
+    echo -e "${BOLD}${WHITE}Ruta de exportación (presiona Enter para usar el directorio actual):${NC}"
+    read -p "> " export_path
+    
+    if [ "$export_path" = "0" ]; then
+        print_info "Operación cancelada"
+        return 0
+    fi
+    
+    # Si no se especificó ruta, usar el directorio actual
+    if [ -z "$export_path" ]; then
+        export_path="./${selected_backup}.tar.gz"
+    fi
+    
+    # Expandir ~ si existe
+    export_path=$(echo "$export_path" | sed "s|~|$HOME|g")
+    
+    # Verificar si la ruta es un directorio existente
+    if [ -d "$export_path" ]; then
+        print_error "La ruta especificada es un directorio, no un archivo"
+        echo -e "${YELLOW}¿Deseas exportar dentro de este directorio? (s/N):${NC}"
+        read -p "> " use_dir
+        
+        if [[ "$use_dir" =~ ^[Ss]$ ]]; then
+            # Agregar el nombre del archivo al directorio
+            if [[ "$export_path" != */ ]]; then
+                export_path="${export_path}/"
+            fi
+            export_path="${export_path}${selected_backup}.tar.gz"
+            print_info "Exportando a: $export_path"
+        else
+            print_info "Operación cancelada"
+            return 0
+        fi
+    fi
+    
+    # Verificar que la ruta no sea un directorio
+    if [ -d "$export_path" ]; then
+        print_error "La ruta especificada es un directorio. Por favor, especifica un nombre de archivo."
+        return 1
+    fi
+    
+    # Verificar que tenga extensión .tar.gz, si no, agregarla
+    if [[ ! "$export_path" =~ \.tar\.gz$ ]]; then
+        export_path="${export_path}.tar.gz"
+        print_info "Extensión .tar.gz agregada automáticamente"
+    fi
+    
+    # Crear el directorio padre si no existe
+    local export_dir=$(dirname "$export_path")
+    if [ ! -d "$export_dir" ]; then
+        print_info "Creando directorio: $export_dir"
+        mkdir -p "$export_dir"
+        if [ $? -ne 0 ]; then
+            print_error "No se pudo crear el directorio: $export_dir"
+            return 1
+        fi
+    fi
+    
+    # Verificar si el archivo ya existe
+    if [ -f "$export_path" ]; then
+        echo -e "${YELLOW}El archivo ya existe. ¿Sobrescribir? (s/N):${NC}"
+        read -p "> " overwrite
+        if [[ ! "$overwrite" =~ ^[Ss]$ ]]; then
+            print_info "Operación cancelada"
+            return 0
+        fi
+    fi
+    
+    # Crear archivo comprimido
+    print_info "Exportando backup a: $export_path"
+    
+    # Crear un archivo temporal para el tar
+    local temp_tar=$(mktemp)
+    
+    # Comprimir el backup
+    tar -czf "$temp_tar" -C "$BACKUP_BASE_DIR" "$selected_backup" 2>/dev/null
+    
+    if [ $? -eq 0 ]; then
+        # Mover el archivo temporal a la ubicación final
+        mv "$temp_tar" "$export_path"
+        
+        if [ $? -eq 0 ]; then
+            local export_size=$(du -sh "$export_path" 2>/dev/null | cut -f1)
+            echo ""
+            print_success "Backup exportado exitosamente"
+            print_info "Tamaño: $export_size"
+            print_info "Ubicación: $export_path"
+            
+            # Preguntar si quiere ver el contenido
+            echo ""
+            echo -e "${BOLD}${WHITE}¿Quieres ver el contenido del archivo exportado? (s/N):${NC}"
+            read -p "> " view_content
+            if [[ "$view_content" =~ ^[Ss]$ ]]; then
+                tar -tzf "$export_path" | head -20
+                echo -e "${YELLOW}... (mostrando primeros 20 archivos)${NC}"
+            fi
+        else
+            print_error "Error al mover el archivo exportado"
+            rm -f "$temp_tar"
+            return 1
+        fi
+    else
+        print_error "Error al exportar el backup"
+        rm -f "$temp_tar"
+        return 1
+    fi
+}
+
 # ============================================
 # MENÚ PRINCIPAL
 # ============================================
