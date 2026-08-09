@@ -336,6 +336,51 @@ install_jq() {
     fi
 }
 
+# ============================================
+# FUNCIÓN PARA OBTENER LISTA DE BACKUPS VÁLIDOS
+# ============================================
+
+get_valid_backups_list() {
+    local valid_backups=()
+    local backups=$(jq -r '.backups[] | "\(.name):\(.type):\(.description):\(.date)"' "$BACKUP_METADATA_FILE" 2>/dev/null)
+    
+    if [ -z "$backups" ]; then
+        echo ""
+        return
+    fi
+    
+    while IFS=: read -r name type desc date; do
+        # Ignorar el directorio base y backups que no sean válidos
+        if [ "$name" = "vscode_backups" ] || [ "$name" = "backups" ]; then
+            continue
+        fi
+        
+        local backup_dir="$BACKUP_BASE_DIR/$name"
+        if [ -d "$backup_dir" ]; then
+            # Verificar que el directorio contenga al menos un subdirectorio válido
+            local has_content=false
+            if [ -d "$backup_dir/config" ] || [ -d "$backup_dir/extensions" ] || [ -d "$backup_dir/cache" ]; then
+                has_content=true
+            fi
+            
+            # Si no tiene contenido, verificar si tiene otros archivos/directorios
+            if [ "$has_content" = false ]; then
+                local file_count=$(find "$backup_dir" -maxdepth 1 -type f 2>/dev/null | wc -l)
+                local dir_count=$(find "$backup_dir" -maxdepth 1 -type d ! -path "$backup_dir" 2>/dev/null | wc -l)
+                if [ "$file_count" -gt 0 ] || [ "$dir_count" -gt 0 ]; then
+                    has_content=true
+                fi
+            fi
+            
+            if [ "$has_content" = true ]; then
+                valid_backups+=("$name")
+            fi
+        fi
+    done <<< "$backups"
+    
+    # Imprimir los nombres separados por espacio
+    echo "${valid_backups[@]}"
+}
 
 # ============================================
 # MENÚ PRINCIPAL
