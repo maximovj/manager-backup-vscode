@@ -1241,6 +1241,128 @@ duplicate_backup() {
     fi
 }
 
+compare_backups() {
+    print_header
+    echo -e "${BOLD}🔍 COMPARAR BACKUPS${NC}"
+    echo ""
+    
+    # Obtener la lista de backups válidos
+    local backup_names=($(get_valid_backups_list))
+    local backup_count=${#backup_names[@]}
+    
+    if [ $backup_count -lt 2 ]; then
+        print_warning "Se necesitan al menos 2 backups para comparar"
+        return 0
+    fi
+    
+    # Mostrar backups con índice
+    echo -e "${BOLD}${WHITE}Backups disponibles:${NC}"
+    echo "===================="
+    
+    local index=1
+    for name in "${backup_names[@]}"; do
+        local backup_dir="$BACKUP_BASE_DIR/$name"
+        local size=$(get_backup_size "$backup_dir")
+        local check_dirs=$(check_backup_dirs "$backup_dir")
+        local has_config=$(echo "$check_dirs" | cut -d':' -f1)
+        local has_extensions=$(echo "$check_dirs" | cut -d':' -f2)
+        local has_cache=$(echo "$check_dirs" | cut -d':' -f3)
+        
+        local config_status="✗"
+        local ext_status="✗"
+        local cache_status="✗"
+        
+        [ "$has_config" = "true" ] && config_status="✓"
+        [ "$has_extensions" = "true" ] && ext_status="✓"
+        [ "$has_cache" = "true" ] && cache_status="✓"
+        
+        # Obtener metadatos
+        local metadata=$(get_backup_metadata "$name")
+        local date_raw=$(echo "$metadata" | jq -r '.date')
+        local desc=$(echo "$metadata" | jq -r '.description')
+        
+        # Formatear fecha
+        local date_formatted=$(format_date "$date_raw")
+        
+        echo -e "${GREEN}$index)${NC} $name"
+        echo -e "   📅 Fecha: $date_formatted"
+        echo -e "   📦 Tamaño: $size"
+        echo -e "   📁 Contiene: Config[$config_status] Extensions[$ext_status] Cache[$cache_status]"
+        if [ -n "$desc" ] && [ "$desc" != "null" ]; then
+            echo -e "   📝 Descripción: $desc"
+        fi
+        echo ""
+        ((index++))
+    done
+    
+    echo -e "${BOLD}${WHITE}Selecciona el primer backup (0 para salir):${NC}"
+    read -p "> " selection1
+    
+    if [ "$selection1" = "0" ]; then
+        print_info "Operación cancelada"
+        return 0
+    fi
+    
+    echo -e "${BOLD}${WHITE}Selecciona el segundo backup (0 para salir):${NC}"
+    read -p "> " selection2
+    
+    if [ "$selection2" = "0" ]; then
+        print_info "Operación cancelada"
+        return 0
+    fi
+    
+    if ! [[ "$selection1" =~ ^[0-9]+$ ]] || [ "$selection1" -lt 1 ] || [ "$selection1" -gt $backup_count ] || \
+       ! [[ "$selection2" =~ ^[0-9]+$ ]] || [ "$selection2" -lt 1 ] || [ "$selection2" -gt $backup_count ]; then
+        print_error "Selección inválida"
+        return 1
+    fi
+    
+    local backup1_name="${backup_names[$((selection1-1))]}"
+    local backup2_name="${backup_names[$((selection2-1))]}"
+    
+    local backup1_dir="$BACKUP_BASE_DIR/$backup1_name"
+    local backup2_dir="$BACKUP_BASE_DIR/$backup2_name"
+    
+    echo ""
+    echo -e "${BOLD}${WHITE}Comparando:${NC}"
+    echo -e "1) $backup1_name"
+    echo -e "2) $backup2_name"
+    echo ""
+    
+    # Comparar tamaños
+    local size1=$(get_backup_size "$backup1_dir")
+    local size2=$(get_backup_size "$backup2_dir")
+    echo -e "${BOLD}Tamaño:${NC}"
+    echo -e "  $backup1_name: $size1"
+    echo -e "  $backup2_name: $size2"
+    echo ""
+    
+    # Comparar contenido
+    local check1=$(check_backup_dirs "$backup1_dir")
+    local check2=$(check_backup_dirs "$backup2_dir")
+    
+    local has_config1=$(echo "$check1" | cut -d':' -f1)
+    local has_extensions1=$(echo "$check1" | cut -d':' -f2)
+    local has_cache1=$(echo "$check1" | cut -d':' -f3)
+    
+    local has_config2=$(echo "$check2" | cut -d':' -f1)
+    local has_extensions2=$(echo "$check2" | cut -d':' -f2)
+    local has_cache2=$(echo "$check2" | cut -d':' -f3)
+    
+    echo -e "${BOLD}Contenido:${NC}"
+    echo -e "  $backup1_name: Config[$([ "$has_config1" = "true" ] && echo "✓" || echo "✗")] Extensions[$([ "$has_extensions1" = "true" ] && echo "✓" || echo "✗")] Cache[$([ "$has_cache1" = "true" ] && echo "✓" || echo "✗")]"
+    echo -e "  $backup2_name: Config[$([ "$has_config2" = "true" ] && echo "✓" || echo "✗")] Extensions[$([ "$has_extensions2" = "true" ] && echo "✓" || echo "✗")] Cache[$([ "$has_cache2" = "true" ] && echo "✓" || echo "✗")]"
+    echo ""
+    
+    # Contar archivos
+    local files1=$(find "$backup1_dir" -type f 2>/dev/null | wc -l)
+    local files2=$(find "$backup2_dir" -type f 2>/dev/null | wc -l)
+    
+    echo -e "${BOLD}Archivos:${NC}"
+    echo -e "  $backup1_name: $files1 archivos"
+    echo -e "  $backup2_name: $files2 archivos"
+}
+
 # ============================================
 # MENÚ PRINCIPAL
 # ============================================
