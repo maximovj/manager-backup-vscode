@@ -383,6 +383,175 @@ get_valid_backups_list() {
 }
 
 # ============================================
+# FUNCIÓN PARA RESTABLECER VS CODE A ESTADO DE FÁBRICA
+# ============================================
+
+reset_vscode_factory() {
+    print_header
+    echo -e "${BOLD}🔄 RESTABLECER VS CODE A ESTADO DE FÁBRICA${NC}"
+    echo ""
+    
+    # Verificar VS Code
+    check_vscode || return 1
+    
+    echo ""
+    print_separator
+    echo -e "${BOLD}${RED}⚠️  ¡ADVERTENCIA! Este script ELIMINARÁ PERMANENTEMENTE:${NC}"
+    echo -e "  ${RED}• Todas tus configuraciones de VS Code (settings.json, keybindings, etc.)${NC}"
+    echo -e "  ${RED}• Todas las extensiones instaladas${NC}"
+    echo -e "  ${RED}• La caché de VS Code${NC}"
+    print_separator
+    echo ""
+    
+    echo -e "${BOLD}${RED}¿Estás seguro de que quieres continuar? (escribe 'SI' para confirmar):${NC}"
+    read -p "> " confirm_reset
+    
+    if [ "$confirm_reset" != "SI" ]; then
+        print_info "Operación cancelada"
+        return 0
+    fi
+    
+    print_info "Preparando el proceso de limpieza..."
+    echo ""
+    
+    # Crear backup automático antes de resetear
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local backup_name="factory_reset_backup_${timestamp}"
+    local backup_dir="$BACKUP_BASE_DIR/$backup_name"
+    
+    print_info "Creando carpeta de backup en: $backup_dir"
+    mkdir -p "$backup_dir"
+    
+    # Respaldar configuraciones
+    if [ -d "$VSCODE_USER_DIR" ]; then
+        print_info "Respaldando configuraciones..."
+        mkdir -p "$backup_dir/config"
+        cp -r "$VSCODE_USER_DIR" "$backup_dir/config/"
+        print_success "Configuraciones respaldadas"
+    else
+        print_warning "No se encontraron configuraciones para respaldar"
+    fi
+    
+    # Respaldar extensiones
+    if [ -d "$VSCODE_EXTENSIONS_DIR" ]; then
+        print_info "Respaldando extensiones..."
+        mkdir -p "$backup_dir/extensions"
+        cp -r "$VSCODE_EXTENSIONS_DIR" "$backup_dir/"
+        print_success "Extensiones respaldadas"
+    else
+        print_warning "No se encontraron extensiones para respaldar"
+    fi
+    
+    # Respaldar caché
+    if [ -d "$VSCODE_CACHE_DIR" ]; then
+        print_info "Respaldando caché..."
+        mkdir -p "$backup_dir/cache"
+        cp -r "$VSCODE_CACHE_DIR" "$backup_dir/"
+        print_success "Caché respaldada"
+    else
+        print_warning "No se encontró caché para respaldar"
+    fi
+    
+    # Guardar metadatos del backup de fábrica
+    if add_backup_metadata "$backup_name" "factory_reset" "Backup automático antes de resetear a fábrica" "$timestamp"; then
+        print_success "Metadatos del backup guardados"
+    fi
+    
+    echo ""
+    print_success "Backup creado en: $backup_dir"
+    echo ""
+    
+    echo -e "${BOLD}${WHITE}¿Continuar con la eliminación de datos? (s/N):${NC}"
+    read -p "> " continue_reset
+    
+    if [[ ! "$continue_reset" =~ ^[Ss]$ ]]; then
+        print_info "Operación cancelada. El backup se mantiene en: $backup_dir"
+        return 0
+    fi
+    
+    echo ""
+    print_info "Iniciando limpieza de VS Code..."
+    echo ""
+    
+    # Eliminar configuraciones
+    if [ -d "$HOME/.config/Code" ]; then
+        print_info "Eliminando configuraciones principales..."
+        rm -rf "$HOME/.config/Code"
+        print_success "Configuraciones eliminadas"
+    else
+        print_warning "No se encontraron configuraciones para eliminar"
+    fi
+    
+    # Eliminar extensiones
+    if [ -d "$HOME/.vscode" ]; then
+        print_info "Eliminando extensiones instaladas..."
+        rm -rf "$HOME/.vscode"
+        print_success "Extensiones eliminadas"
+    else
+        print_warning "No se encontraron extensiones para eliminar"
+    fi
+    
+    # Eliminar caché
+    if [ -d "$HOME/.cache/vscode-cpptools" ]; then
+        print_info "Eliminando caché..."
+        rm -rf "$HOME/.cache/vscode-cpptools"
+        print_success "Caché eliminada"
+    else
+        print_warning "No se encontró caché en ~/.cache/Code"
+    fi
+    
+    # Eliminar otros archivos de caché de VS Code
+    local cache_dirs=(
+        "$HOME/.cache/Code"
+        "$HOME/.cache/vscode"
+        "$HOME/.config/Code/CachedData"
+        "$HOME/.config/Code/CachedExtensions"
+        "$HOME/.config/Code/Code Cache"
+    )
+    
+    for cache_dir in "${cache_dirs[@]}"; do
+        if [ -d "$cache_dir" ]; then
+            print_info "Eliminando: $cache_dir"
+            rm -rf "$cache_dir"
+        fi
+    done
+    
+    echo ""
+    print_success "¡Limpieza completada con éxito!"
+    echo ""
+    print_success "¡VS Code ha sido restablecido a estado de fábrica!"
+    print_info "Al abrir VS Code, se iniciará como si fuera una instalación nueva."
+    echo ""
+    print_info "El backup se encuentra en: $backup_dir"
+    print_info "Si todo funciona bien, puedes eliminar esa carpeta manualmente."
+    echo ""
+    
+    echo -e "${BOLD}${WHITE}¿Quieres eliminar la carpeta de backup ahora? (s/N):${NC}"
+    read -p "> " delete_backup
+    
+    if [[ "$delete_backup" =~ ^[Ss]$ ]]; then
+        rm -rf "$backup_dir"
+        remove_backup_metadata "$backup_name"
+        print_success "Carpeta de backup eliminada"
+    else
+        print_info "La carpeta de backup se mantiene en: $backup_dir"
+        print_info "Puedes eliminarla manualmente cuando quieras"
+    fi
+    
+    echo ""
+    echo -e "${BOLD}${WHITE}¿Quieres abrir VS Code ahora? (s/N):${NC}"
+    read -p "> " open_vscode
+    
+    if [[ "$open_vscode" =~ ^[Ss]$ ]]; then
+        code &
+        print_success "VS Code iniciado"
+    fi
+    
+    echo ""
+    print_success "¡Proceso completado! 🎉"
+}
+
+# ============================================
 # MENÚ PRINCIPAL
 # ============================================
 
